@@ -99,6 +99,54 @@ RISK_RULES = [
     ("恶搞/拟真敏感", ["prank", "fake chat", "假短信", "fake whatsapp"]),
 ]
 
+DIMENSION_FALLBACK = "原文未明确，需要结合上下文复盘。"
+FIVE_DIMENSIONS = [
+    ("dao", "道", "底层逻辑", ["想法", "赚钱方式", "变现方式", "商业化", "流量", "需求", "分类", "特点", "结果", "收益"]),
+    ("fa", "法", "方法路径", ["方法", "方式", "路径", "引流", "导入", "SEO", "ASO", "投放", "裂变", "监控", "教程"]),
+    ("shu", "术", "具体动作", ["步骤", "操作", "功能", "地址", "网址", "搜索", "复制", "做成", "部署", "上传", "1", "2"]),
+    ("qi", "器", "工具平台", ["工具", "产品", "平台", "地址", "网址", "github", "qimai", "sensortower", "app store", "facebook", "tiktok"]),
+    ("shi", "势", "趋势窗口", ["趋势", "增长", "流量", "上线", "一个月", "热点", "榜", "trending", "市场", "机会", "窗口"]),
+]
+
+DIMENSION_TAG_HINTS = {
+    "TikTok": {
+        "fa": "方法线索：围绕 TikTok 内容、账号、模板或爆款样本做选题、引流或截流复盘。",
+        "shi": "势能线索：短视频流量池和热点素材是这份资料的重要观察对象。",
+    },
+    "Facebook": {
+        "fa": "方法线索：通过 Facebook 社群、广告素材或公开广告库观察可迁移流量。",
+        "qi": "器物线索：Facebook/Meta 相关页面可作为素材和投放观察入口。",
+    },
+    "ASO/SEO": {
+        "fa": "方法线索：从关键词、榜单、搜索结果或竞品页面反推需求。",
+        "shi": "势能线索：搜索和应用商店排名暴露了长期需求窗口。",
+    },
+    "七麦": {
+        "qi": "器物线索：七麦数据可用于应用榜单、关键词和竞品验证。",
+    },
+    "RevenueCat": {
+        "qi": "器物线索：RevenueCat 相关公开页面可用于订阅与商业化线索复盘。",
+        "dao": "底层逻辑：订阅收入和付费验证是判断产品价值的重要证据。",
+    },
+    "广告投放": {
+        "fa": "方法线索：用广告素材、透明库和投放词观察竞品获客方式。",
+        "shi": "势能线索：广告持续投放通常意味着市场需求或 ROI 仍值得复盘。",
+    },
+    "社群/分销": {
+        "dao": "底层逻辑：资料、社群入口和分销机制共同承接信任与转化。",
+        "fa": "方法线索：用内容或资料做入口，再引导到社群、私域或分销承接。",
+    },
+    "工具/插件": {
+        "qi": "器物线索：插件、代码库、AI 工具和平台链接是复盘具体实现的入口。",
+    },
+    "竞品监控": {
+        "fa": "方法线索：通过 sitemap、广告库、榜单或公开页面持续监控竞品变化。",
+    },
+    "商业化": {
+        "dao": "底层逻辑：原文关注订阅、付费、广告、分销或服务化变现。",
+    },
+}
+
 
 def posix(path: Path) -> str:
     return path.as_posix()
@@ -210,6 +258,132 @@ def excerpt(text: str, limit: int = 220) -> str:
     if len(normalized) <= limit:
         return normalized
     return normalized[: limit - 1] + "…"
+
+
+def compact_evidence_line(line: str, limit: int = 92) -> str:
+    cleaned = html.unescape(line)
+    cleaned = re.sub(r"<[^>]+>", " ", cleaned)
+    cleaned = re.sub(r"!\[[^\]]*\]\([^)]+\)", " ", cleaned)
+    cleaned = re.sub(r"\[[^\]]+\]\([^)]+\)", " ", cleaned)
+    cleaned = re.sub(r"https?://[^\s]+", "链接", cleaned)
+    cleaned = re.sub(r"\s+", " ", cleaned).strip(" -*#\t")
+    if len(cleaned) <= limit:
+        return cleaned
+    return cleaned[: limit - 1] + "…"
+
+
+def evidence_lines(text: str, needles: list[str], limit: int = 3) -> list[str]:
+    if not text:
+        return []
+    results: list[str] = []
+    seen: set[str] = set()
+    lowered_needles = [needle.lower() for needle in needles if needle.strip()]
+    for raw_line in text.splitlines():
+        line = compact_evidence_line(raw_line)
+        if len(line) < 8:
+            continue
+        lowered = line.lower()
+        if not any(needle in lowered for needle in lowered_needles):
+            continue
+        if line in seen:
+            continue
+        seen.add(line)
+        results.append(line)
+        if len(results) >= limit:
+            break
+    return results
+
+
+def domain_summary(urls: list[str], limit: int = 5) -> list[str]:
+    domains: Counter[str] = Counter()
+    for raw_url in urls:
+        url = normalize_url(raw_url)
+        final_url = unwrap_redirect(url)
+        parsed = urlparse(final_url or url)
+        domain = parsed.netloc.lower()
+        if domain:
+            domains[domain] += 1
+    return [domain for domain, _count in domains.most_common(limit)]
+
+
+def dimension_confidence(items: list[str]) -> str:
+    return "needs_review" if items == [DIMENSION_FALLBACK] else "evidence"
+
+
+def build_five_dimensions(
+    rel_path: str,
+    title: str,
+    text: str,
+    tags: list[str],
+    risk_tags: list[str],
+    urls: list[str],
+    year: str,
+    ext: str,
+    attachment: dict[str, Any] | None,
+) -> list[dict[str, Any]]:
+    tag_hints: dict[str, list[str]] = defaultdict(list)
+    for tag in tags:
+        for key, hint in DIMENSION_TAG_HINTS.get(tag, {}).items():
+            tag_hints[key].append(hint)
+
+    domains = domain_summary(urls)
+    dimensions: list[dict[str, Any]] = []
+    useful_tags = [tag for tag in tags if tag not in {"未分类", "附件"}]
+
+    for key, label, subtitle, needles in FIVE_DIMENSIONS:
+        items: list[str] = []
+        items.extend(tag_hints.get(key, [])[:2])
+
+        if key == "dao" and useful_tags:
+            items.append(f"主题判断：这份资料主要落在 {'、'.join(useful_tags[:5])}。")
+        if key == "fa" and "增长打法" in tags:
+            items.append("方法线索：原文可放入“发现机会 → 验证需求 → 承接流量 → 转化复盘”的链路。")
+        if key == "shu":
+            for line in evidence_lines(text, needles, 3):
+                items.append(f"动作证据：{line}")
+        elif key not in {"qi"}:
+            for line in evidence_lines(text, needles, 2):
+                items.append(f"原文证据：{line}")
+
+        if key == "qi":
+            if domains:
+                items.append(f"关联工具/平台：{'、'.join(domains)}。")
+            if attachment:
+                items.append(f"附件入口：{attachment.get('kind', ext.lstrip('.') or 'file')}，需要打开原始文件查看细节。")
+            for line in evidence_lines(text, needles, 2):
+                items.append(f"原文证据：{line}")
+
+        if key == "shi":
+            if year != "未标年":
+                items.append(f"时间线索：资料归入 {year}，适合和当年的平台热度、榜单和投放环境一起看。")
+            if risk_tags:
+                items.append(f"边界提醒：原文触及 {'、'.join(risk_tags[:4])}，复盘时先区分学习观察和实际执行。")
+
+        deduped: list[str] = []
+        seen: set[str] = set()
+        for item in items:
+            cleaned = compact_evidence_line(item, 120)
+            if not cleaned or cleaned in seen:
+                continue
+            seen.add(cleaned)
+            deduped.append(cleaned)
+            if len(deduped) >= 4:
+                break
+        if not deduped:
+            deduped = [DIMENSION_FALLBACK]
+
+        dimensions.append(
+            {
+                "key": key,
+                "label": label,
+                "subtitle": subtitle,
+                "items": deduped,
+                "confidence": dimension_confidence(deduped),
+                "source": "generated-from-local-content",
+            }
+        )
+
+    return dimensions
 
 
 def detect_tags(rel_path: str, text: str, ext: str) -> list[str]:
@@ -386,6 +560,7 @@ def build_inventory(source: Path, copied_files: list[Path]) -> dict[str, Any]:
         tags = detect_tags(rel_path, text, ext)
         risk_tags = detect_risk_tags(rel_path, text)
         attachment = inspect_attachment(copied)
+        five_dimensions = build_five_dimensions(rel_path, title, text, tags, risk_tags, urls, year, ext, attachment)
 
         for tag in tags:
             tag_counts[tag] += 1
@@ -408,6 +583,7 @@ def build_inventory(source: Path, copied_files: list[Path]) -> dict[str, Any]:
             "excerpt": excerpt(text) if text else "",
             "content": text if ext == ".md" else "",
             "publicPath": public_path(rel_path),
+            "fiveDimensions": five_dimensions,
         }
         if attachment:
             file_item["attachment"] = attachment
@@ -1188,7 +1364,7 @@ select:focus {
 
 .workspace-grid {
   display: grid;
-  grid-template-columns: minmax(220px, 270px) minmax(0, 1fr) minmax(300px, 380px);
+  grid-template-columns: minmax(210px, 250px) minmax(300px, 420px) minmax(420px, 1fr);
   gap: 14px;
   align-items: start;
 }
@@ -1321,6 +1497,10 @@ select:focus {
   font-size: .92rem;
   overflow-wrap: anywhere;
   word-break: break-word;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
 }
 .row-meta {
   display: flex;
@@ -1347,6 +1527,31 @@ select:focus {
 }
 .pill.neutral { color: var(--muted); background: #eef1f3; }
 .pill.risk { color: var(--red); background: #fff0ea; }
+.dimension-mini {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 2px;
+  color: #fff;
+  background: #17211e;
+  border: 1px solid rgba(255,255,255,.2);
+  border-radius: 6px;
+  font-size: .72rem;
+  font-weight: 900;
+  letter-spacing: 0;
+}
+.dimension-mini span {
+  min-width: 19px;
+  min-height: 19px;
+  display: inline-grid;
+  place-items: center;
+  border-radius: 4px;
+  background: rgba(255,255,255,.12);
+}
+.dimension-mini .needs-review {
+  color: #d7c8a6;
+  background: rgba(255,255,255,.06);
+}
 .empty-detail {
   display: grid;
   gap: 8px;
@@ -1357,15 +1562,133 @@ select:focus {
 .detail-pane h2 {
   font-size: 1.22rem;
 }
+.detail-hero {
+  padding: 16px;
+  margin: -2px -2px 14px;
+  color: #fff;
+  background: linear-gradient(135deg, #17211e, #25473d 58%, #5b3d1a);
+  border-radius: 6px;
+}
+.detail-hero .file-path {
+  margin-top: 8px;
+  color: #cddfd7;
+}
+.detail-kicker {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 10px;
+  color: #e9d18b;
+  font-size: .78rem;
+  font-weight: 900;
+}
+.detail-hero .pill.neutral {
+  color: #dfe8e4;
+  background: rgba(255,255,255,.12);
+}
+.dimension-title {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 14px 0 10px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--line);
+}
+.dimension-title span {
+  color: var(--amber);
+  font-size: .76rem;
+  font-weight: 900;
+  letter-spacing: .08em;
+}
+.dimension-title strong {
+  font-size: 1.06rem;
+}
+.dimension-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  margin-bottom: 14px;
+}
+.dimension-card {
+  min-height: 156px;
+  padding: 12px;
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  box-shadow: 0 10px 24px rgba(24, 33, 31, .06);
+}
+.dimension-card:nth-child(1) { border-top: 4px solid #263a33; }
+.dimension-card:nth-child(2) { border-top: 4px solid #0d6b54; }
+.dimension-card:nth-child(3) { border-top: 4px solid #b98518; }
+.dimension-card:nth-child(4) { border-top: 4px solid #245f9f; }
+.dimension-card:nth-child(5) { border-top: 4px solid #8d3d32; }
+.dimension-card.needs-review {
+  background: #faf8f1;
+}
+.dimension-head {
+  display: grid;
+  grid-template-columns: 34px minmax(0, 1fr);
+  gap: 9px;
+  align-items: start;
+  margin-bottom: 10px;
+}
+.dimension-label {
+  width: 34px;
+  height: 34px;
+  display: inline-grid;
+  place-items: center;
+  color: #fff;
+  background: var(--header);
+  border-radius: 6px;
+  font-size: 1.04rem;
+  font-weight: 900;
+}
+.dimension-head strong,
+.dimension-head em {
+  display: block;
+}
+.dimension-head em {
+  margin-top: 2px;
+  color: var(--muted);
+  font-size: .74rem;
+  font-style: normal;
+  font-weight: 800;
+}
+.dimension-card ul {
+  display: grid;
+  gap: 7px;
+  margin: 0;
+  padding-left: 18px;
+  color: #33423d;
+  font-size: .88rem;
+}
+.source-preview {
+  margin-top: 12px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: #fff;
+}
+.source-preview summary {
+  padding: 11px 12px;
+  color: var(--ink);
+  font-weight: 900;
+  cursor: pointer;
+}
 .detail-pane pre {
   max-height: 390px;
   overflow: auto;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
   padding: 12px;
+  margin: 0;
   background: #f7faf9;
-  border: 1px solid var(--line);
-  border-radius: 6px;
+  border-top: 1px solid var(--line);
+  border-right: 0;
+  border-bottom: 0;
+  border-left: 0;
+  border-radius: 0 0 6px 6px;
   font-size: .86rem;
   line-height: 1.58;
 }
@@ -1463,6 +1786,9 @@ select:focus {
   grid-template-columns: minmax(0, 1fr) 160px;
   gap: 14px;
 }
+.link-card > div {
+  min-width: 0;
+}
 .link-card .link-url {
   display: block;
   margin-bottom: 6px;
@@ -1478,8 +1804,20 @@ select:focus {
   gap: 7px;
   align-content: start;
   justify-items: start;
+  min-width: 0;
   color: var(--muted);
   font-size: .86rem;
+}
+.link-side > *,
+.link-tags {
+  max-width: 100%;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.link-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
 }
 
 .responsive-table {
@@ -1553,6 +1891,7 @@ select:focus {
   .study-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .link-card { grid-template-columns: 1fr; }
   .row-meta { justify-content: flex-start; }
+  .dimension-grid { grid-template-columns: 1fr; }
   .raw-table {
     min-width: 0;
     border-collapse: separate;
@@ -1735,6 +2074,38 @@ function pillList(items, risk = false) {
     .join("");
 }
 
+function truncateText(value, limit = 120) {
+  const text = String(value || "").replace(/\s+/g, " ").trim();
+  if (text.length <= limit) return text;
+  return `${text.slice(0, limit - 1)}…`;
+}
+
+function dimensionMini(file) {
+  const dimensions = file.fiveDimensions || [];
+  return `<span class="dimension-mini" aria-label="道法术器势">${
+    dimensions.map(item => `<span class="${item.confidence === "needs_review" ? "needs-review" : ""}">${escapeHtml(item.label)}</span>`).join("")
+  }</span>`;
+}
+
+function dimensionCards(file) {
+  const dimensions = file.fiveDimensions || [];
+  if (!dimensions.length) return "";
+  return `<section class="dimension-grid" aria-label="道法术器势拆解">${dimensions.map(item => {
+    const body = (item.items || []).map(point => `<li>${escapeHtml(point)}</li>`).join("");
+    const review = item.confidence === "needs_review" ? " needs-review" : "";
+    return `<article class="dimension-card${review}">
+      <div class="dimension-head">
+        <span class="dimension-label">${escapeHtml(item.label)}</span>
+        <span>
+          <strong>${escapeHtml(item.subtitle)}</strong>
+          <em>${item.confidence === "needs_review" ? "待复盘" : "有证据"}</em>
+        </span>
+      </div>
+      <ul>${body}</ul>
+    </article>`;
+  }).join("")}</section>`;
+}
+
 function buildDirectoryCounts() {
   const counts = new Map();
   files.forEach(file => {
@@ -1784,7 +2155,8 @@ function fileMatches(file) {
   const riskMatch = !risk || file.riskTags.includes(risk);
   const haystack = [
     file.path, file.title, file.excerpt, file.content,
-    file.tags.join(" "), file.riskTags.join(" "), file.headings.join(" ")
+    file.tags.join(" "), file.riskTags.join(" "), file.headings.join(" "),
+    (file.fiveDimensions || []).map(item => `${item.label} ${item.subtitle} ${(item.items || []).join(" ")}`).join(" ")
   ].join(" ").toLowerCase();
   const queryMatch = !query || haystack.includes(query);
   return pathMatch && yearMatch && tagMatch && riskMatch && queryMatch;
@@ -1792,10 +2164,10 @@ function fileMatches(file) {
 
 function fileRow(file) {
   const selected = file.path === selectedFilePath ? " is-selected" : "";
-  const excerpt = file.excerpt || "附件或空文件，打开原始文件查看。";
+  const excerpt = truncateText(file.excerpt || "附件或空文件，打开原始文件查看。", 108);
   return `<button class="file-row${selected}" type="button" data-path="${escapeHtml(file.path)}">
     <span class="file-main">
-      <span class="file-title"><strong>${escapeHtml(file.title)}</strong>${pillList(file.riskTags, true)}</span>
+      <span class="file-title"><strong>${escapeHtml(file.title)}</strong>${dimensionMini(file)}${pillList(file.riskTags, true)}</span>
       <span class="file-path">${escapeHtml(file.path)}</span>
       <span class="file-excerpt">${escapeHtml(excerpt)}</span>
     </span>
@@ -1854,15 +2226,23 @@ function renderDetail(file) {
     .map(link => `<li><a class="text-link" href="${escapeHtml(link.url)}" target="_blank" rel="noreferrer">${escapeHtml(link.url)}</a></li>`)
     .join("");
   const content = file.content
-    ? `<pre>${escapeHtml(file.content)}</pre>`
+    ? `<details class="source-preview"><summary>原文预览</summary><pre>${escapeHtml(file.content)}</pre></details>`
     : `<p class="muted">附件资料可通过公开入口打开或下载。</p>`;
-  fileDetail.innerHTML = `<div class="section-head"><h2>${escapeHtml(file.title)}</h2><span>${escapeHtml(file.extension || "file")}</span></div>
-    <p class="file-path">${escapeHtml(file.path)}</p>
-    <div class="meta-row">${pillList(file.tags)}${pillList(file.riskTags, true)}<span class="pill neutral">${escapeHtml(file.year)}</span><span class="pill neutral">${formatBytes(file.size)}</span></div>
-    <div class="detail-actions">
-      <a class="button primary" href="${fileHref(file)}" target="_blank" rel="noreferrer">打开原始文件</a>
-      <a class="button secondary" href="${githubHref(file)}" target="_blank" rel="noreferrer">GitHub 查看</a>
+  fileDetail.innerHTML = `<article class="detail-hero">
+      <div class="detail-kicker">${dimensionMini(file)}<span>${escapeHtml(file.extension || "file")}</span></div>
+      <h2>${escapeHtml(file.title)}</h2>
+      <p class="file-path">${escapeHtml(file.path)}</p>
+      <div class="meta-row">${pillList(file.tags)}${pillList(file.riskTags, true)}<span class="pill neutral">${escapeHtml(file.year)}</span><span class="pill neutral">${formatBytes(file.size)}</span></div>
+      <div class="detail-actions">
+        <a class="button primary" href="${fileHref(file)}" target="_blank" rel="noreferrer">打开原始文件</a>
+        <a class="button secondary" href="${githubHref(file)}" target="_blank" rel="noreferrer">GitHub 查看</a>
+      </div>
+    </article>
+    <div class="dimension-title">
+      <span>道 · 法 · 术 · 器 · 势</span>
+      <strong>五维拆解</strong>
     </div>
+    ${dimensionCards(file)}
     ${content}
     ${sourceLinks ? `<h3>本文外链</h3><ul class="source-list">${sourceLinks}</ul>` : ""}`;
 }
@@ -1950,14 +2330,15 @@ function renderLinks() {
     return `<article class="link-card">
       <div>
         <a class="link-url" href="${escapeHtml(link.url)}" target="_blank" rel="noreferrer">${escapeHtml(link.url)}</a>
-        <p class="link-context">${escapeHtml(sourceText)}</p>
+        <p class="link-context">${escapeHtml(truncateText(sourceText, 150))}</p>
         <p class="muted">来源：<a class="text-link" href="${rootPrefix}${escapeHtml(first.publicPath || "")}" target="_blank" rel="noreferrer">${escapeHtml(first.path || "unknown")}</a></p>
       </div>
       <div class="link-side">
+        ${sourceFile ? dimensionMini(sourceFile) : ""}
         <span>${escapeHtml(link.domain)}</span>
         <span>${escapeHtml(groupLabels[link.group] || link.group)}</span>
         <span>${formatNumber(link.count)} 次出现</span>
-        <span>${pillList(link.tags)}${pillList(link.riskTags, true)}</span>
+        <span class="link-tags">${pillList(link.tags)}${pillList(link.riskTags, true)}</span>
       </div>
     </article>`;
   }).join("");

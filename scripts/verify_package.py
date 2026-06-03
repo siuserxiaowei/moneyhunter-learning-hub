@@ -87,6 +87,22 @@ def check_attachments(manifest: dict) -> None:
         fail(f"missing attachment entries: {missing}")
 
 
+def check_five_dimensions(manifest: dict) -> None:
+    expected_labels = ["道", "法", "术", "器", "势"]
+    expected_keys = ["dao", "fa", "shu", "qi", "shi"]
+    for item in manifest["files"]:
+        dimensions = item.get("fiveDimensions")
+        if not dimensions or len(dimensions) != 5:
+            fail(f"file missing fiveDimensions: {item['path']}")
+        labels = [dimension.get("label") for dimension in dimensions]
+        keys = [dimension.get("key") for dimension in dimensions]
+        if labels != expected_labels or keys != expected_keys:
+            fail(f"file has invalid dimension order: {item['path']}")
+        for dimension in dimensions:
+            if not dimension.get("items"):
+                fail(f"dimension missing items: {item['path']} {dimension.get('label')}")
+
+
 def check_site_content(manifest: dict) -> None:
     root_index = (ROOT / "index.html").read_text(encoding="utf-8")
     index = (ROOT / "site" / "index.html").read_text(encoding="utf-8")
@@ -106,9 +122,12 @@ def check_site_content(manifest: dict) -> None:
     for needle in ["rawSearchInput", "rawDirectoryTree", "rawTableBody"]:
         if needle not in raw:
             fail(f"raw/index.html missing {needle}")
-    for needle in ["linkPageSize", "renderRawTable", "renderDetail"]:
+    for needle in ["linkPageSize", "renderRawTable", "renderDetail", "dimensionCards", "dimensionMini", "五维拆解", "道 · 法 · 术 · 器 · 势"]:
         if needle not in app:
             fail(f"site/app.js missing {needle}")
+    for needle in ["fiveDimensions", "\"label\":\"道\"", "\"label\":\"法\"", "\"label\":\"术\"", "\"label\":\"器\"", "\"label\":\"势\""]:
+        if needle not in data_js:
+            fail(f"data js missing five dimension content: {needle}")
     for needle in ["tiktok", "revenuecat", "ASO", "七麦", "Facebook", "知识星球"]:
         if needle.lower() not in data_js.lower():
             fail(f"data js missing searchable term: {needle}")
@@ -120,6 +139,7 @@ def main() -> None:
     check_raw_files(manifest)
     check_links(manifest)
     check_attachments(manifest)
+    check_five_dimensions(manifest)
     check_site_content(manifest)
     print(
         "PASS: "

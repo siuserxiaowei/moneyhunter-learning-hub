@@ -126,6 +126,38 @@ function pillList(items, risk = false) {
     .join("");
 }
 
+function truncateText(value, limit = 120) {
+  const text = String(value || "").replace(/\s+/g, " ").trim();
+  if (text.length <= limit) return text;
+  return `${text.slice(0, limit - 1)}…`;
+}
+
+function dimensionMini(file) {
+  const dimensions = file.fiveDimensions || [];
+  return `<span class="dimension-mini" aria-label="道法术器势">${
+    dimensions.map(item => `<span class="${item.confidence === "needs_review" ? "needs-review" : ""}">${escapeHtml(item.label)}</span>`).join("")
+  }</span>`;
+}
+
+function dimensionCards(file) {
+  const dimensions = file.fiveDimensions || [];
+  if (!dimensions.length) return "";
+  return `<section class="dimension-grid" aria-label="道法术器势拆解">${dimensions.map(item => {
+    const body = (item.items || []).map(point => `<li>${escapeHtml(point)}</li>`).join("");
+    const review = item.confidence === "needs_review" ? " needs-review" : "";
+    return `<article class="dimension-card${review}">
+      <div class="dimension-head">
+        <span class="dimension-label">${escapeHtml(item.label)}</span>
+        <span>
+          <strong>${escapeHtml(item.subtitle)}</strong>
+          <em>${item.confidence === "needs_review" ? "待复盘" : "有证据"}</em>
+        </span>
+      </div>
+      <ul>${body}</ul>
+    </article>`;
+  }).join("")}</section>`;
+}
+
 function buildDirectoryCounts() {
   const counts = new Map();
   files.forEach(file => {
@@ -175,7 +207,8 @@ function fileMatches(file) {
   const riskMatch = !risk || file.riskTags.includes(risk);
   const haystack = [
     file.path, file.title, file.excerpt, file.content,
-    file.tags.join(" "), file.riskTags.join(" "), file.headings.join(" ")
+    file.tags.join(" "), file.riskTags.join(" "), file.headings.join(" "),
+    (file.fiveDimensions || []).map(item => `${item.label} ${item.subtitle} ${(item.items || []).join(" ")}`).join(" ")
   ].join(" ").toLowerCase();
   const queryMatch = !query || haystack.includes(query);
   return pathMatch && yearMatch && tagMatch && riskMatch && queryMatch;
@@ -183,10 +216,10 @@ function fileMatches(file) {
 
 function fileRow(file) {
   const selected = file.path === selectedFilePath ? " is-selected" : "";
-  const excerpt = file.excerpt || "附件或空文件，打开原始文件查看。";
+  const excerpt = truncateText(file.excerpt || "附件或空文件，打开原始文件查看。", 108);
   return `<button class="file-row${selected}" type="button" data-path="${escapeHtml(file.path)}">
     <span class="file-main">
-      <span class="file-title"><strong>${escapeHtml(file.title)}</strong>${pillList(file.riskTags, true)}</span>
+      <span class="file-title"><strong>${escapeHtml(file.title)}</strong>${dimensionMini(file)}${pillList(file.riskTags, true)}</span>
       <span class="file-path">${escapeHtml(file.path)}</span>
       <span class="file-excerpt">${escapeHtml(excerpt)}</span>
     </span>
@@ -245,15 +278,23 @@ function renderDetail(file) {
     .map(link => `<li><a class="text-link" href="${escapeHtml(link.url)}" target="_blank" rel="noreferrer">${escapeHtml(link.url)}</a></li>`)
     .join("");
   const content = file.content
-    ? `<pre>${escapeHtml(file.content)}</pre>`
+    ? `<details class="source-preview"><summary>原文预览</summary><pre>${escapeHtml(file.content)}</pre></details>`
     : `<p class="muted">附件资料可通过公开入口打开或下载。</p>`;
-  fileDetail.innerHTML = `<div class="section-head"><h2>${escapeHtml(file.title)}</h2><span>${escapeHtml(file.extension || "file")}</span></div>
-    <p class="file-path">${escapeHtml(file.path)}</p>
-    <div class="meta-row">${pillList(file.tags)}${pillList(file.riskTags, true)}<span class="pill neutral">${escapeHtml(file.year)}</span><span class="pill neutral">${formatBytes(file.size)}</span></div>
-    <div class="detail-actions">
-      <a class="button primary" href="${fileHref(file)}" target="_blank" rel="noreferrer">打开原始文件</a>
-      <a class="button secondary" href="${githubHref(file)}" target="_blank" rel="noreferrer">GitHub 查看</a>
+  fileDetail.innerHTML = `<article class="detail-hero">
+      <div class="detail-kicker">${dimensionMini(file)}<span>${escapeHtml(file.extension || "file")}</span></div>
+      <h2>${escapeHtml(file.title)}</h2>
+      <p class="file-path">${escapeHtml(file.path)}</p>
+      <div class="meta-row">${pillList(file.tags)}${pillList(file.riskTags, true)}<span class="pill neutral">${escapeHtml(file.year)}</span><span class="pill neutral">${formatBytes(file.size)}</span></div>
+      <div class="detail-actions">
+        <a class="button primary" href="${fileHref(file)}" target="_blank" rel="noreferrer">打开原始文件</a>
+        <a class="button secondary" href="${githubHref(file)}" target="_blank" rel="noreferrer">GitHub 查看</a>
+      </div>
+    </article>
+    <div class="dimension-title">
+      <span>道 · 法 · 术 · 器 · 势</span>
+      <strong>五维拆解</strong>
     </div>
+    ${dimensionCards(file)}
     ${content}
     ${sourceLinks ? `<h3>本文外链</h3><ul class="source-list">${sourceLinks}</ul>` : ""}`;
 }
@@ -341,14 +382,15 @@ function renderLinks() {
     return `<article class="link-card">
       <div>
         <a class="link-url" href="${escapeHtml(link.url)}" target="_blank" rel="noreferrer">${escapeHtml(link.url)}</a>
-        <p class="link-context">${escapeHtml(sourceText)}</p>
+        <p class="link-context">${escapeHtml(truncateText(sourceText, 150))}</p>
         <p class="muted">来源：<a class="text-link" href="${rootPrefix}${escapeHtml(first.publicPath || "")}" target="_blank" rel="noreferrer">${escapeHtml(first.path || "unknown")}</a></p>
       </div>
       <div class="link-side">
+        ${sourceFile ? dimensionMini(sourceFile) : ""}
         <span>${escapeHtml(link.domain)}</span>
         <span>${escapeHtml(groupLabels[link.group] || link.group)}</span>
         <span>${formatNumber(link.count)} 次出现</span>
-        <span>${pillList(link.tags)}${pillList(link.riskTags, true)}</span>
+        <span class="link-tags">${pillList(link.tags)}${pillList(link.riskTags, true)}</span>
       </div>
     </article>`;
   }).join("");
