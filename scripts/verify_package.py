@@ -18,6 +18,7 @@ REQUIRED_PATHS = [
     "site/styles.css",
     "site/app.js",
     "site/moneyhunter-data.js",
+    "raw/index.html",
     "data/moneyhunter-manifest.json",
     "data/moneyhunter-links.json",
     "docs/moneyhunter-overview.md",
@@ -87,14 +88,27 @@ def check_attachments(manifest: dict) -> None:
 
 
 def check_site_content(manifest: dict) -> None:
+    root_index = (ROOT / "index.html").read_text(encoding="utf-8")
     index = (ROOT / "site" / "index.html").read_text(encoding="utf-8")
     links = (ROOT / "site" / "links.html").read_text(encoding="utf-8")
+    raw = (ROOT / "raw" / "index.html").read_text(encoding="utf-8")
+    app = (ROOT / "site" / "app.js").read_text(encoding="utf-8")
     data_js = (ROOT / "site" / "moneyhunter-data.js").read_text(encoding="utf-8")
-    for needle in ["MoneyHunter 全量公开交互学习库", "全文搜索", "附件库"]:
+    for needle in ["site/styles.css", "site/moneyhunter-data.js", "site/app.js", "raw/"]:
+        if needle not in root_index:
+            fail(f"index.html missing root entry asset/path: {needle}")
+    for needle in ["MoneyHunter 全量公开交互学习库", "全文搜索", "附件库", "workspace-grid", "detail-pane"]:
         if needle not in index:
             fail(f"site/index.html missing {needle}")
-    if "完整链接库" not in links:
-        fail("site/links.html missing link library section")
+    for needle in ["完整链接库", "domainFilter", "linkPager"]:
+        if needle not in links:
+            fail(f"site/links.html missing {needle}")
+    for needle in ["rawSearchInput", "rawDirectoryTree", "rawTableBody"]:
+        if needle not in raw:
+            fail(f"raw/index.html missing {needle}")
+    for needle in ["linkPageSize", "renderRawTable", "renderDetail"]:
+        if needle not in app:
+            fail(f"site/app.js missing {needle}")
     for needle in ["tiktok", "revenuecat", "ASO", "七麦", "Facebook", "知识星球"]:
         if needle.lower() not in data_js.lower():
             fail(f"data js missing searchable term: {needle}")

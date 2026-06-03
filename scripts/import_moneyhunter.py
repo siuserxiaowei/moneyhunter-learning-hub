@@ -700,23 +700,13 @@ python3 scripts/verify_package.py
 
 
 def generate_raw_index(inventory: dict[str, Any]) -> None:
-    rows = []
-    for item in inventory["files"]:
-        rows.append(
-            "<tr>"
-            f"<td><a href=\"{quote(item['path'], safe='/')}\" target=\"_blank\" rel=\"noreferrer\">{html.escape(item['path'])}</a></td>"
-            f"<td>{html.escape(item['type'])}</td>"
-            f"<td>{html.escape(item['year'])}</td>"
-            f"<td>{html.escape('、'.join(item['tags']))}</td>"
-            f"<td>{item['size']}</td>"
-            "</tr>"
-        )
     page = f"""<!doctype html>
 <html lang="zh-CN">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>MoneyHunter Raw Archive</title>
+  <meta name="description" content="MoneyHunter 全量原始资料目录，支持路径、类型和目录筛选。">
   <link rel="icon" href="data:,">
   <link rel="stylesheet" href="../site/styles.css">
 </head>
@@ -731,25 +721,53 @@ def generate_raw_index(inventory: dict[str, Any]) -> None:
         <a href="https://github.com/siuserxiaowei/moneyhunter-learning-hub/tree/main/raw" target="_blank" rel="noreferrer">GitHub Raw</a>
       </div>
     </nav>
-    <section class="hero">
-      <p class="eyebrow">Original Files</p>
-      <h1>MoneyHunter 原始资料目录</h1>
-      <p class="lede">这里保留 MoneyHunter 的原始目录结构。点击文件名可打开或下载对应资料。</p>
+    <section class="masthead">
+      <div>
+        <p class="eyebrow">Original Files</p>
+        <h1>MoneyHunter 原始资料目录</h1>
+      </div>
+      <p class="lede">{len(inventory['files'])} 个公开文件 · 保留原始目录结构和中文文件名</p>
     </section>
   </header>
   <main>
-    <section class="panel">
-      <div class="panel-head"><h2>全量文件</h2><span>{len(inventory['files'])} 个公开文件</span></div>
-      <div class="link-table-wrap">
-        <table class="link-table">
-          <thead><tr><th>路径</th><th>类型</th><th>年份</th><th>标签</th><th>大小</th></tr></thead>
-          <tbody>
-            {"".join(rows)}
-          </tbody>
-        </table>
+    <section class="raw-toolbar" aria-label="Raw 资料筛选">
+      <label class="search-box">
+        <span>路径搜索</span>
+        <input id="rawSearchInput" type="search" placeholder="输入文件名、目录、标签">
+      </label>
+      <label>
+        <span>文件类型</span>
+        <select id="rawTypeFilter"></select>
+      </label>
+      <span class="result-note" id="rawCount"></span>
+    </section>
+    <section class="raw-grid">
+      <aside class="side-rail">
+        <div class="section-head">
+          <h2>目录</h2>
+          <span id="rawTreeCount"></span>
+        </div>
+        <div class="tree compact-tree" id="rawDirectoryTree"></div>
+      </aside>
+      <div class="table-panel">
+        <div class="section-head">
+          <h2>全量文件</h2>
+          <a class="text-link" href="https://github.com/siuserxiaowei/moneyhunter-learning-hub/tree/main/raw" target="_blank" rel="noreferrer">GitHub Raw</a>
+        </div>
+        <div class="responsive-table">
+          <table class="raw-table">
+            <thead><tr><th>文件</th><th>类型</th><th>年份</th><th>标签</th><th>大小</th></tr></thead>
+            <tbody id="rawTableBody"></tbody>
+          </table>
+        </div>
       </div>
     </section>
   </main>
+  <footer class="footer">
+    <p>MoneyHunter Learning Hub · Raw archive.</p>
+  </footer>
+  <script src="../site/moneyhunter-data.js"></script>
+  <script src="../site/app.js"></script>
 </body>
 </html>
 """
@@ -770,6 +788,123 @@ def html_page(title: str, body_class: str, links_page: bool = False, asset_prefi
     page_kind = "links" if links_page else "home"
     active_home = ' class="active"' if not links_page else ""
     active_links = ' class="active"' if links_page else ""
+    if links_page:
+        main_content = f"""
+    <section class="link-summary">
+      <div>
+        <p class="eyebrow">Public Link Index</p>
+        <h1>MoneyHunter 完整链接库</h1>
+      </div>
+      <p class="lede">公开收录全部 URL，按域名、来源文件和主题标签检索。</p>
+    </section>
+    <section class="stats-strip" id="stats" aria-label="链接统计"></section>
+    <section class="link-toolbar" id="explore" aria-label="链接筛选">
+      <label class="search-box">
+        <span>搜索链接</span>
+        <input id="linkSearchInput" type="search" placeholder="域名、URL、来源文件、标签">
+      </label>
+      <label>
+        <span>域名</span>
+        <select id="domainFilter"></select>
+      </label>
+      <label>
+        <span>分组</span>
+        <select id="groupFilter"></select>
+      </label>
+      <span class="result-note" id="linkCount"></span>
+    </section>
+    <section class="link-domain-band">
+      <div class="section-head">
+        <h2>高频域名</h2>
+        <button class="ghost-button" id="clearLinkFilters" type="button">清空筛选</button>
+      </div>
+      <div class="chip-row" id="linkDomainChips"></div>
+    </section>
+    <section class="link-index">
+      <div class="section-head">
+        <h2>链接结果</h2>
+        <div class="pager" aria-label="链接分页">
+          <button class="ghost-button" id="linkPrev" type="button">上一页</button>
+          <span id="linkPager"></span>
+          <button class="ghost-button" id="linkNext" type="button">下一页</button>
+        </div>
+      </div>
+      <div class="link-list" id="linkTableBody"></div>
+    </section>
+"""
+    else:
+        main_content = f"""
+    <section class="stats-strip" id="stats" aria-label="资料统计"></section>
+    <section class="desk-toolbar" id="explore" aria-label="资料筛选">
+      <label class="search-box">
+        <span>全文搜索</span>
+        <input id="searchInput" type="search" placeholder="tiktok、revenuecat、ASO、七麦、Facebook、知识星球">
+      </label>
+      <label>
+        <span>年份</span>
+        <select id="yearFilter"></select>
+      </label>
+      <label>
+        <span>主题</span>
+        <select id="tagFilter"></select>
+      </label>
+      <label>
+        <span>风险标签</span>
+        <select id="riskFilter"></select>
+      </label>
+    </section>
+    <section class="workspace-grid">
+      <aside class="side-rail">
+        <div class="section-head">
+          <h2>目录树</h2>
+          <span id="treeCount"></span>
+        </div>
+        <div class="tree" id="directoryTree"></div>
+      </aside>
+      <section class="result-pane">
+        <div class="section-head">
+          <h2>文件检索</h2>
+          <span id="resultCount"></span>
+        </div>
+        <div class="file-list" id="fileResults"></div>
+      </section>
+      <aside class="detail-pane" id="fileDetail">
+        <div class="empty-detail">
+          <p class="eyebrow">File Detail</p>
+          <h2>选择一份资料</h2>
+          <p>右侧会显示原文摘要、标签、外链和公开打开入口。</p>
+        </div>
+      </aside>
+    </section>
+    <section class="learning-band">
+      <div class="section-head">
+        <h2>学习拆解</h2>
+        <a class="text-link" href="{docs_href}">打开完整文档</a>
+      </div>
+      <div class="study-grid">
+        <a href="{root_prefix}docs/moneyhunter-overview.md">总览路径</a>
+        <a href="{root_prefix}docs/moneyhunter-growth-map.md">增长打法地图</a>
+        <a href="{root_prefix}docs/moneyhunter-file-index.md">全量文件索引</a>
+        <a href="{root_prefix}docs/moneyhunter-risk-notes.md">风险边界说明</a>
+      </div>
+    </section>
+    <section class="asset-grid">
+      <div class="asset-section">
+        <div class="section-head">
+          <h2>附件库</h2>
+          <span id="attachmentCount"></span>
+        </div>
+        <div class="attachment-list" id="attachmentGrid"></div>
+      </div>
+      <div class="asset-section">
+        <div class="section-head">
+          <h2>高频外链域名</h2>
+          <a class="text-link" href="{links_href}">完整链接库</a>
+        </div>
+        <div class="domain-list" id="domainGrid"></div>
+      </div>
+    </section>
+"""
     return f"""<!doctype html>
 <html lang="zh-CN">
 <head>
@@ -795,88 +930,20 @@ def html_page(title: str, body_class: str, links_page: bool = False, asset_prefi
         <a href="https://github.com/siuserxiaowei/moneyhunter-learning-hub" target="_blank" rel="noreferrer">GitHub</a>
       </div>
     </nav>
-    <section class="hero">
-      <p class="eyebrow">Full Public Archive</p>
-      <h1>MoneyHunter 全量公开交互学习库</h1>
-      <p class="lede">原文、附件、二维码/图片、社群入口和所有外链都保留。这里负责把它们变成可搜索、可筛选、可复盘的学习系统。</p>
-      <div class="hero-actions">
+    <section class="masthead">
+      <div>
+        <p class="eyebrow">Full Public Archive</p>
+        <h1>{html.escape(title)}</h1>
+      </div>
+      <div class="masthead-actions">
         <a class="button primary" href="#explore">开始检索</a>
-        <a class="button secondary" href="{raw_href}">打开原始目录</a>
-        <a class="button secondary" href="{docs_href}">学习说明</a>
+        <a class="button secondary" href="{raw_href}">Raw</a>
+        <a class="button secondary" href="{docs_href}">Docs</a>
       </div>
     </section>
   </header>
   <main>
-    <section class="stats-grid" id="stats" aria-label="资料统计"></section>
-    <section class="panel warning">
-      <strong>公开边界</strong>
-      <p>普通资料、链接、附件和图片按要求公开；风险标签只提示学习边界，不删除内容。明确凭据型密钥会阻止导入。</p>
-    </section>
-    <section class="toolbar" id="explore">
-      <label class="search-box">
-        <span>全文搜索</span>
-        <input id="searchInput" type="search" placeholder="试试：tiktok、revenuecat、ASO、七麦、Facebook、知识星球">
-      </label>
-      <label>
-        <span>年份</span>
-        <select id="yearFilter"></select>
-      </label>
-      <label>
-        <span>主题</span>
-        <select id="tagFilter"></select>
-      </label>
-      <label>
-        <span>风险标签</span>
-        <select id="riskFilter"></select>
-      </label>
-    </section>
-    <section class="layout home-layout">
-      <aside class="panel">
-        <div class="panel-head">
-          <h2>目录树</h2>
-          <span id="treeCount"></span>
-        </div>
-        <div class="tree" id="directoryTree"></div>
-      </aside>
-      <section class="panel">
-        <div class="panel-head">
-          <h2>文件检索</h2>
-          <span id="resultCount"></span>
-        </div>
-        <div class="file-grid" id="fileResults"></div>
-      </section>
-    </section>
-    <section class="panel detail-panel" id="fileDetail" hidden></section>
-    <section class="panel">
-      <div class="panel-head">
-        <h2>附件库</h2>
-        <span id="attachmentCount"></span>
-      </div>
-      <div class="attachment-grid" id="attachmentGrid"></div>
-    </section>
-    <section class="panel links-panel">
-      <div class="panel-head">
-        <h2>高频外链域名</h2>
-        <a class="text-link" href="{links_href}">打开完整链接库</a>
-      </div>
-      <div class="domain-grid" id="domainGrid"></div>
-    </section>
-    <section class="panel links-page-panel">
-      <div class="panel-head">
-        <h2>完整链接库</h2>
-        <span id="linkCount"></span>
-      </div>
-      <label class="search-box compact-search">
-        <span>搜索链接</span>
-        <input id="linkSearchInput" type="search" placeholder="域名、URL、来源文件、标签">
-      </label>
-      <div class="link-table-wrap">
-        <table class="link-table">
-          <thead><tr><th>链接</th><th>域名</th><th>分组</th><th>次数</th><th>来源</th><th>标签</th></tr></thead>
-          <tbody id="linkTableBody"></tbody>
-        </table>
-      </div>
-    </section>
+{main_content}
   </main>
   <footer class="footer">
     <p>MoneyHunter Learning Hub · 全量公开资料库 · GitHub Pages 静态站。</p>
@@ -890,153 +957,652 @@ def html_page(title: str, body_class: str, links_page: bool = False, asset_prefi
 
 def generate_site() -> None:
     SITE_DIR.mkdir(parents=True, exist_ok=True)
-    (SITE_DIR / "index.html").write_text(html_page("MoneyHunter 全量公开学习库", "", asset_prefix=""), encoding="utf-8")
+    (SITE_DIR / "index.html").write_text(html_page("MoneyHunter 全量公开交互学习库", "", asset_prefix=""), encoding="utf-8")
     (SITE_DIR / "links.html").write_text(html_page("MoneyHunter 公开链接库", "", links_page=True, asset_prefix=""), encoding="utf-8")
-    (ROOT / "index.html").write_text(html_page("MoneyHunter 全量公开学习库", "", asset_prefix="site/"), encoding="utf-8")
+    (ROOT / "index.html").write_text(html_page("MoneyHunter 全量公开交互学习库", "", asset_prefix="site/"), encoding="utf-8")
 
     css = """
 :root {
   color-scheme: light;
-  --ink: #17201c;
-  --muted: #637169;
-  --paper: #f7f5ef;
-  --card: #fffdfa;
-  --line: #ded8cc;
-  --green: #0f6b4f;
-  --blue: #2f5d8f;
+  --ink: #18211f;
+  --muted: #66736d;
+  --faint: #8a9690;
+  --bg: #f5f7f8;
+  --surface: #ffffff;
+  --surface-soft: #eef4f2;
+  --line: #d7dee2;
+  --line-strong: #b9c4ca;
+  --green: #0d6b54;
+  --blue: #245f9f;
   --red: #a84834;
-  --gold: #b9821d;
-  --shadow: 0 18px 42px rgba(23, 32, 28, 0.12);
+  --amber: #b98518;
+  --header: #14211d;
 }
+
 * { box-sizing: border-box; }
 html { scroll-behavior: smooth; }
 body {
   margin: 0;
   font-family: "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
   color: var(--ink);
-  background: linear-gradient(90deg, rgba(23,32,28,.035) 1px, transparent 1px),
-    linear-gradient(rgba(23,32,28,.035) 1px, transparent 1px), var(--paper);
-  background-size: 38px 38px;
-  line-height: 1.65;
+  background: var(--bg);
+  line-height: 1.55;
 }
 a { color: inherit; }
 button, input, select { font: inherit; }
+button { cursor: pointer; }
 h1, h2, h3, p { margin: 0; overflow-wrap: anywhere; }
-h1, h2, h3 { font-family: "Songti SC", "Noto Serif CJK SC", "STSong", serif; line-height: 1.12; letter-spacing: 0; }
+h1, h2, h3 { line-height: 1.18; letter-spacing: 0; }
+
 .site-header {
-  color: #fbfff9;
-  background: linear-gradient(135deg, rgba(18,28,23,.98), rgba(15,107,79,.94) 54%, rgba(47,93,143,.9));
+  color: #fbfffd;
+  background: var(--header);
+  border-bottom: 4px solid #d5a735;
+}
+.nav,
+.masthead,
+main {
+  width: min(1320px, calc(100% - 36px));
+  margin: 0 auto;
 }
 .nav {
-  width: min(1240px, calc(100% - 36px));
-  margin: 0 auto;
-  padding: 22px 0;
+  min-height: 66px;
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 18px;
+  gap: 20px;
 }
-.brand { display: inline-flex; align-items: center; gap: 12px; text-decoration: none; font-weight: 800; }
+.brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 11px;
+  color: #fff;
+  font-weight: 800;
+  text-decoration: none;
+}
 .brand-mark {
-  width: 42px; height: 42px; display: inline-grid; place-items: center;
-  border: 1px solid rgba(255,255,255,.42); border-radius: 50%; background: rgba(255,255,255,.1);
+  width: 36px;
+  height: 36px;
+  display: inline-grid;
+  place-items: center;
+  border: 1px solid rgba(255,255,255,.36);
+  border-radius: 6px;
+  background: rgba(255,255,255,.08);
+  font-size: .85rem;
 }
-.nav-links { display: flex; flex-wrap: wrap; gap: 6px; justify-content: flex-end; }
+.nav-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  justify-content: flex-end;
+}
 .nav-links a {
-  min-height: 38px; display: inline-flex; align-items: center; padding: 0 12px;
-  border-radius: 6px; color: rgba(255,255,255,.84); text-decoration: none;
+  min-height: 34px;
+  display: inline-flex;
+  align-items: center;
+  padding: 0 10px;
+  border-radius: 6px;
+  color: rgba(255,255,255,.78);
+  text-decoration: none;
+  font-size: .94rem;
 }
-.nav-links a:hover, .nav-links a.active { background: rgba(255,255,255,.14); color: #fff; }
-.hero {
-  width: min(1240px, calc(100% - 36px));
-  margin: 0 auto;
-  padding: 70px 0 76px;
+.nav-links a:hover,
+.nav-links a.active {
+  background: rgba(255,255,255,.13);
+  color: #fff;
 }
-.eyebrow { color: #d9b361; text-transform: uppercase; letter-spacing: .08em; font-size: .83rem; font-weight: 800; }
-h1 { max-width: 980px; margin-top: 12px; font-size: clamp(2.4rem, 7vw, 5.4rem); }
-.lede { max-width: 850px; margin-top: 22px; color: rgba(255,255,255,.84); font-size: 1.15rem; }
-.hero-actions { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 28px; }
-.button {
-  min-height: 44px; display: inline-flex; align-items: center; justify-content: center;
-  padding: 0 18px; border-radius: 6px; text-decoration: none; border: 1px solid transparent; font-weight: 800;
+.masthead {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 24px;
+  padding: 28px 0 30px;
 }
-.button.primary { background: #f5c55c; color: #1b211d; }
-.button.secondary { border-color: rgba(255,255,255,.34); color: #fff; background: rgba(255,255,255,.08); }
-main { width: min(1240px, calc(100% - 36px)); margin: 0 auto; padding: 34px 0 64px; }
-.stats-grid { display: grid; grid-template-columns: repeat(6, 1fr); gap: 12px; margin-top: -68px; margin-bottom: 18px; }
-.stat-card, .panel {
-  background: var(--card); border: 1px solid var(--line); border-radius: 8px; box-shadow: var(--shadow);
+.eyebrow {
+  color: #e1bc55;
+  font-size: .76rem;
+  font-weight: 800;
+  letter-spacing: .08em;
+  text-transform: uppercase;
 }
-.stat-card { padding: 18px; }
-.stat-card span { display: block; color: var(--muted); font-size: .9rem; }
-.stat-card strong { display: block; margin-top: 4px; font-size: 1.65rem; line-height: 1; }
-.panel { padding: 20px; margin-bottom: 18px; }
-.warning { border-color: rgba(168,72,52,.34); background: #fff9f4; box-shadow: none; }
-.toolbar {
-  display: grid; grid-template-columns: minmax(260px, 1.7fr) repeat(3, minmax(150px, .7fr));
-  gap: 12px; align-items: end; margin: 18px 0;
+h1 {
+  max-width: 860px;
+  margin-top: 8px;
+  font-size: clamp(1.9rem, 4.2vw, 3.45rem);
+  font-weight: 900;
 }
-label span { display: block; margin-bottom: 6px; color: var(--muted); font-size: .9rem; font-weight: 700; }
-input, select {
-  width: 100%; min-height: 44px; padding: 0 12px; border: 1px solid var(--line);
-  border-radius: 6px; background: #fff; color: var(--ink);
+.lede {
+  max-width: 560px;
+  color: rgba(255,255,255,.78);
+  font-size: .98rem;
 }
-.layout { display: grid; grid-template-columns: minmax(250px, .7fr) minmax(0, 1.7fr); gap: 18px; align-items: start; }
-.panel-head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; margin-bottom: 14px; }
-.panel-head h2 { font-size: 1.65rem; }
-.panel-head span { color: var(--muted); }
-.tree { display: grid; gap: 6px; max-height: 680px; overflow: auto; padding-right: 4px; }
+.masthead-actions,
+.detail-actions,
+.pager {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+.button,
+.ghost-button {
+  min-height: 36px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 6px;
+  text-decoration: none;
+  font-weight: 800;
+  border: 1px solid transparent;
+  padding: 0 12px;
+}
+.button.primary { background: #e3b63f; color: #16201c; }
+.button.secondary { background: #fff; color: var(--ink); border-color: var(--line); }
+.site-header .button.secondary {
+  color: #fff;
+  border-color: rgba(255,255,255,.32);
+  background: rgba(255,255,255,.08);
+}
+.ghost-button {
+  background: #fff;
+  color: var(--ink);
+  border-color: var(--line);
+}
+.ghost-button:disabled { opacity: .45; cursor: not-allowed; }
+
+main { padding: 18px 0 54px; }
+.stats-strip {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: 10px;
+  margin-bottom: 14px;
+}
+.stat-card {
+  min-height: 76px;
+  padding: 13px 14px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-left: 4px solid var(--green);
+  border-radius: 6px;
+}
+.stat-card span {
+  display: block;
+  color: var(--muted);
+  font-size: .82rem;
+  font-weight: 700;
+}
+.stat-card strong {
+  display: block;
+  margin-top: 4px;
+  font-size: 1.55rem;
+  line-height: 1;
+}
+
+.desk-toolbar,
+.link-toolbar,
+.raw-toolbar {
+  position: sticky;
+  top: 0;
+  z-index: 5;
+  display: grid;
+  gap: 10px;
+  align-items: end;
+  padding: 12px;
+  margin-bottom: 14px;
+  background: rgba(245,247,248,.96);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  backdrop-filter: blur(8px);
+}
+.desk-toolbar { grid-template-columns: minmax(260px, 1.7fr) repeat(3, minmax(130px, .62fr)); }
+.link-toolbar { grid-template-columns: minmax(300px, 1.5fr) minmax(170px, .7fr) minmax(170px, .7fr) auto; }
+.raw-toolbar { grid-template-columns: minmax(280px, 1.4fr) minmax(160px, .45fr) auto; }
+label span {
+  display: block;
+  margin-bottom: 5px;
+  color: var(--muted);
+  font-size: .78rem;
+  font-weight: 800;
+}
+input,
+select {
+  width: 100%;
+  min-height: 38px;
+  padding: 0 10px;
+  color: var(--ink);
+  background: #fff;
+  border: 1px solid var(--line-strong);
+  border-radius: 6px;
+}
+input:focus,
+select:focus {
+  outline: 2px solid rgba(36,95,159,.22);
+  border-color: var(--blue);
+}
+.result-note {
+  color: var(--muted);
+  font-size: .9rem;
+  font-weight: 800;
+  white-space: nowrap;
+}
+
+.workspace-grid {
+  display: grid;
+  grid-template-columns: minmax(220px, 270px) minmax(0, 1fr) minmax(300px, 380px);
+  gap: 14px;
+  align-items: start;
+}
+.raw-grid {
+  display: grid;
+  grid-template-columns: minmax(240px, 310px) minmax(0, 1fr);
+  gap: 14px;
+  align-items: start;
+}
+.side-rail,
+.result-pane,
+.detail-pane,
+.asset-section,
+.learning-band,
+.link-domain-band,
+.link-index,
+.table-panel {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+}
+.side-rail,
+.detail-pane {
+  position: sticky;
+  top: 84px;
+  max-height: calc(100vh - 102px);
+  overflow: auto;
+}
+.side-rail,
+.result-pane,
+.detail-pane,
+.asset-section,
+.learning-band,
+.link-domain-band,
+.link-index,
+.table-panel {
+  padding: 14px;
+}
+.section-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding-bottom: 10px;
+  margin-bottom: 10px;
+  border-bottom: 1px solid var(--line);
+}
+.section-head h2 {
+  font-size: 1.04rem;
+  font-weight: 900;
+}
+.section-head span,
+.muted {
+  color: var(--muted);
+  font-size: .88rem;
+}
+
+.tree {
+  display: grid;
+  gap: 2px;
+}
 .tree button {
-  width: 100%; border: 0; border-radius: 6px; background: transparent; text-align: left;
-  padding: 9px 10px; cursor: pointer; color: var(--ink);
+  width: 100%;
+  min-height: 32px;
+  padding: 6px 8px 6px calc(8px + var(--depth, 0) * 14px);
+  color: var(--ink);
+  background: transparent;
+  border: 0;
+  border-radius: 5px;
+  text-align: left;
+  font-size: .88rem;
 }
-.tree button:hover, .tree button.is-active { background: #edf4ee; color: var(--green); }
-.file-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
-.file-card, .attachment-card, .domain-card {
-  border: 1px solid var(--line); border-radius: 8px; padding: 14px; background: #fff;
+.tree button:hover,
+.tree button.is-active {
+  color: var(--green);
+  background: var(--surface-soft);
 }
-.file-card { cursor: pointer; }
-.file-card:hover { border-color: rgba(15,107,79,.48); }
-.file-card h3, .attachment-card h3 { font-size: 1.12rem; margin-bottom: 8px; }
-.meta-row { display: flex; flex-wrap: wrap; gap: 6px; margin: 10px 0; }
+.compact-tree button { font-size: .84rem; }
+
+.file-list,
+.attachment-list,
+.domain-list,
+.link-list {
+  display: grid;
+  gap: 8px;
+}
+.file-row {
+  width: 100%;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 8px;
+  padding: 12px;
+  color: inherit;
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  text-align: left;
+}
+.file-row:hover,
+.file-row.is-selected {
+  border-color: rgba(13,107,84,.58);
+  background: #f7fbf9;
+}
+.file-main {
+  min-width: 0;
+  display: block;
+}
+.file-title {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 5px;
+}
+.file-title strong {
+  font-size: 1rem;
+  line-height: 1.3;
+}
+.file-path,
+.link-url {
+  display: block;
+  color: var(--blue);
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+.file-excerpt {
+  display: block;
+  margin-top: 7px;
+  color: #394541;
+  font-size: .92rem;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+.row-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  justify-content: flex-start;
+}
+.meta-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  margin: 9px 0;
+}
 .pill {
-  display: inline-flex; align-items: center; min-height: 24px; padding: 0 8px;
-  border-radius: 999px; background: #edf4ee; color: var(--green); font-size: .78rem; font-weight: 800;
+  min-height: 22px;
+  display: inline-flex;
+  align-items: center;
+  padding: 0 7px;
+  color: var(--green);
+  background: #e8f3ee;
+  border-radius: 999px;
+  font-size: .74rem;
+  font-weight: 800;
 }
-.pill.risk { background: #fff0ea; color: var(--red); }
-.muted { color: var(--muted); font-size: .92rem; }
-.detail-panel pre {
-  max-height: 520px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere;
-  border: 1px solid var(--line); border-radius: 8px; padding: 14px; background: #f8faf7;
+.pill.neutral { color: var(--muted); background: #eef1f3; }
+.pill.risk { color: var(--red); background: #fff0ea; }
+.empty-detail {
+  display: grid;
+  gap: 8px;
+  min-height: 240px;
+  align-content: center;
+  color: var(--muted);
 }
-.detail-actions { display: flex; flex-wrap: wrap; gap: 10px; margin: 14px 0; }
-.text-link { color: var(--blue); font-weight: 800; text-decoration: none; }
+.detail-pane h2 {
+  font-size: 1.22rem;
+}
+.detail-pane pre {
+  max-height: 390px;
+  overflow: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  padding: 12px;
+  background: #f7faf9;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  font-size: .86rem;
+  line-height: 1.58;
+}
+.source-list {
+  display: grid;
+  gap: 6px;
+  padding-left: 18px;
+}
+.source-list a { overflow-wrap: anywhere; }
+.text-link {
+  color: var(--blue);
+  font-weight: 800;
+  text-decoration: none;
+}
 .text-link:hover { text-decoration: underline; }
-.attachment-grid, .domain-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
-.domain-card strong { display: block; font-size: 1.1rem; }
-.domain-card span { color: var(--muted); }
-.links-page-panel { display: none; }
-body[data-page="links"] .home-layout,
-body[data-page="links"] #fileDetail,
-body[data-page="links"] .links-panel,
-body[data-page="links"] .panel:has(#attachmentGrid) { display: none; }
-body[data-page="links"] .links-page-panel { display: block; }
-.compact-search { display: block; margin-bottom: 14px; max-width: 560px; }
-.link-table-wrap { overflow-x: auto; }
-.link-table { width: 100%; border-collapse: collapse; font-size: .92rem; }
-.link-table th, .link-table td { border-bottom: 1px solid var(--line); padding: 10px; text-align: left; vertical-align: top; }
-.link-table th { color: var(--muted); font-size: .8rem; text-transform: uppercase; letter-spacing: .06em; }
-.link-url { max-width: 440px; overflow-wrap: anywhere; }
-.footer { padding: 28px 18px; text-align: center; color: var(--muted); border-top: 1px solid var(--line); }
-@media (max-width: 980px) {
-  .stats-grid { grid-template-columns: repeat(3, 1fr); margin-top: 0; }
-  .toolbar, .layout { grid-template-columns: 1fr; }
-  .file-grid, .attachment-grid, .domain-grid { grid-template-columns: 1fr; }
+
+.learning-band,
+.asset-grid,
+.link-domain-band,
+.link-index {
+  margin-top: 14px;
 }
-@media (max-width: 640px) {
-  .nav { align-items: flex-start; flex-direction: column; }
-  .stats-grid { grid-template-columns: repeat(2, 1fr); }
-  main, .hero, .nav { width: min(100% - 24px, 1240px); }
+.study-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+}
+.study-grid a,
+.attachment-card,
+.domain-card,
+.link-card {
+  display: block;
+  padding: 12px;
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  text-decoration: none;
+}
+.study-grid a {
+  color: var(--green);
+  font-weight: 900;
+}
+.asset-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(300px, .7fr);
+  gap: 14px;
+}
+.attachment-card h3,
+.domain-card strong,
+.link-card h3 {
+  display: block;
+  margin-bottom: 5px;
+  font-size: .98rem;
+  line-height: 1.32;
+}
+.domain-card {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: center;
+}
+.domain-card span { color: var(--muted); font-weight: 800; }
+
+.link-summary {
+  display: flex;
+  justify-content: space-between;
+  gap: 20px;
+  align-items: end;
+  padding: 6px 0 16px;
+}
+.link-summary h1 { color: var(--ink); }
+.link-summary .lede { color: var(--muted); }
+.chip-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.domain-chip {
+  min-height: 32px;
+  padding: 0 10px;
+  color: var(--ink);
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  font-weight: 800;
+}
+.domain-chip:hover,
+.domain-chip.is-active {
+  color: var(--green);
+  border-color: rgba(13,107,84,.58);
+  background: #f2faf6;
+}
+.link-card {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 160px;
+  gap: 14px;
+}
+.link-card .link-url {
+  display: block;
+  margin-bottom: 6px;
+  font-weight: 800;
+  text-decoration: none;
+}
+.link-context {
+  color: #3d4844;
+  font-size: .9rem;
+}
+.link-side {
+  display: grid;
+  gap: 7px;
+  align-content: start;
+  justify-items: start;
+  color: var(--muted);
+  font-size: .86rem;
+}
+
+.responsive-table {
+  width: 100%;
+  overflow-x: auto;
+}
+.raw-table {
+  width: 100%;
+  min-width: 760px;
+  border-collapse: collapse;
+  font-size: .9rem;
+}
+.raw-table th,
+.raw-table td {
+  padding: 10px 8px;
+  border-bottom: 1px solid var(--line);
+  vertical-align: top;
+  text-align: left;
+}
+.raw-table th {
+  color: var(--muted);
+  font-size: .76rem;
+  letter-spacing: .06em;
+  text-transform: uppercase;
+}
+.raw-table a { color: var(--blue); font-weight: 800; text-decoration: none; }
+.raw-table a:hover { text-decoration: underline; }
+.raw-path-cell { max-width: 420px; overflow-wrap: anywhere; }
+
+.footer {
+  padding: 28px 18px;
+  color: var(--muted);
+  text-align: center;
+  border-top: 1px solid var(--line);
+}
+
+@media (max-width: 1180px) {
+  .stats-strip { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .workspace-grid { grid-template-columns: minmax(210px, 260px) minmax(0, 1fr); }
+  .detail-pane {
+    position: static;
+    grid-column: 1 / -1;
+    max-height: none;
+  }
+  .asset-grid { grid-template-columns: 1fr; }
+}
+
+@media (max-width: 860px) {
+  .nav,
+  .masthead,
+  main {
+    width: min(100% - 24px, 1320px);
+  }
+  .nav,
+  .masthead,
+  .link-summary {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+  .desk-toolbar,
+  .link-toolbar,
+  .raw-toolbar,
+  .workspace-grid,
+  .raw-grid {
+    grid-template-columns: 1fr;
+  }
+  .side-rail {
+    position: static;
+    max-height: 280px;
+  }
+  .study-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .link-card { grid-template-columns: 1fr; }
+  .row-meta { justify-content: flex-start; }
+  .raw-table {
+    min-width: 0;
+    border-collapse: separate;
+    border-spacing: 0 8px;
+  }
+  .raw-table thead { display: none; }
+  .raw-table,
+  .raw-table tbody,
+  .raw-table tr,
+  .raw-table td {
+    display: block;
+    width: 100%;
+  }
+  .raw-table tr {
+    padding: 8px 10px;
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    background: #fff;
+  }
+  .raw-table td {
+    display: grid;
+    grid-template-columns: 76px minmax(0, 1fr);
+    gap: 10px;
+    padding: 6px 0;
+    border-bottom: 0;
+  }
+  .raw-table td::before {
+    content: attr(data-label);
+    color: var(--muted);
+    font-weight: 800;
+  }
+}
+
+@media (max-width: 560px) {
+  .stats-strip,
+  .study-grid {
+    grid-template-columns: 1fr;
+  }
+  .file-row {
+    grid-template-columns: 1fr;
+  }
+  .masthead-actions,
+  .detail-actions,
+  .pager {
+    width: 100%;
+  }
+  .button,
+  .ghost-button {
+    flex: 1 1 auto;
+  }
 }
 """
     (SITE_DIR / "styles.css").write_text(css, encoding="utf-8")
@@ -1044,14 +1610,16 @@ body[data-page="links"] .links-page-panel { display: block; }
     app = """
 "use strict";
 
-const data = window.moneyHunterContent;
-const stats = data.stats;
-const files = data.files;
-const uniqueLinks = data.uniqueLinks;
-const attachments = data.attachments;
+const data = window.moneyHunterContent || {};
+const stats = data.stats || {};
+const files = data.files || [];
+const links = data.links || [];
+const uniqueLinks = data.uniqueLinks || [];
+const attachments = data.attachments || [];
 const rootPrefix = document.body.dataset.rootPrefix || "";
+const fileByPath = new Map(files.map(file => [file.path, file]));
+const numberFormatter = new Intl.NumberFormat("zh-CN");
 
-const page = document.body.dataset.page || "home";
 const searchInput = document.querySelector("#searchInput");
 const yearFilter = document.querySelector("#yearFilter");
 const tagFilter = document.querySelector("#tagFilter");
@@ -1064,11 +1632,40 @@ const fileDetail = document.querySelector("#fileDetail");
 const attachmentGrid = document.querySelector("#attachmentGrid");
 const attachmentCount = document.querySelector("#attachmentCount");
 const domainGrid = document.querySelector("#domainGrid");
+
 const linkSearchInput = document.querySelector("#linkSearchInput");
+const domainFilter = document.querySelector("#domainFilter");
+const groupFilter = document.querySelector("#groupFilter");
 const linkTableBody = document.querySelector("#linkTableBody");
 const linkCount = document.querySelector("#linkCount");
+const linkDomainChips = document.querySelector("#linkDomainChips");
+const clearLinkFilters = document.querySelector("#clearLinkFilters");
+const linkPrev = document.querySelector("#linkPrev");
+const linkNext = document.querySelector("#linkNext");
+const linkPager = document.querySelector("#linkPager");
+
+const rawSearchInput = document.querySelector("#rawSearchInput");
+const rawTypeFilter = document.querySelector("#rawTypeFilter");
+const rawDirectoryTree = document.querySelector("#rawDirectoryTree");
+const rawTreeCount = document.querySelector("#rawTreeCount");
+const rawTableBody = document.querySelector("#rawTableBody");
+const rawCount = document.querySelector("#rawCount");
+
+const groupLabels = {
+  app_market_intel: "应用/数据",
+  social_video: "社媒/视频",
+  community_entry: "社群入口",
+  ads_competitor_research: "广告/竞品",
+  code_ai_infra: "代码/AI",
+  affiliate_tracking_redirect: "联盟/追踪",
+  ai_saas_tools: "AI/SaaS"
+};
 
 let activePath = "";
+let selectedFilePath = "";
+let rawActivePath = "";
+let linkPage = 1;
+const linkPageSize = 80;
 
 function byId(id) {
   return document.querySelector(id);
@@ -1082,6 +1679,30 @@ function escapeHtml(value) {
     .replaceAll('"', "&quot;");
 }
 
+function formatNumber(value) {
+  return numberFormatter.format(value || 0);
+}
+
+function formatBytes(bytes) {
+  if (!bytes) return "0 B";
+  const units = ["B", "KB", "MB", "GB"];
+  let value = bytes;
+  let unit = 0;
+  while (value >= 1024 && unit < units.length - 1) {
+    value /= 1024;
+    unit += 1;
+  }
+  return `${value.toFixed(value >= 10 || unit === 0 ? 0 : 1)} ${units[unit]}`;
+}
+
+function fileHref(file) {
+  return `${rootPrefix}${file.publicPath}`;
+}
+
+function githubHref(file) {
+  return `https://github.com/siuserxiaowei/moneyhunter-learning-hub/blob/main/${file.publicPath}`;
+}
+
 function statCards() {
   const target = byId("#stats");
   if (!target) return;
@@ -1093,20 +1714,62 @@ function statCards() {
     ["URL 出现", stats.linkOccurrenceCount],
     ["唯一链接", stats.uniqueLinkCount]
   ];
-  target.innerHTML = items.map(([label, value]) => `<article class="stat-card"><span>${label}</span><strong>${value}</strong></article>`).join("");
+  target.innerHTML = items
+    .map(([label, value]) => `<article class="stat-card"><span>${label}</span><strong>${formatNumber(value)}</strong></article>`)
+    .join("");
 }
 
-function fillSelect(select, options, allLabel) {
+function fillSelect(select, options, allLabel, labeler = value => value) {
   if (!select) return;
-  select.innerHTML = [`<option value="">${allLabel}</option>`].concat(
-    options.map(option => `<option value="${escapeHtml(option)}">${escapeHtml(option)}</option>`)
-  ).join("");
+  const optionHtml = options.map(option => {
+    const label = labeler(option);
+    return `<option value="${escapeHtml(option)}">${escapeHtml(label)}</option>`;
+  });
+  select.innerHTML = [`<option value="">${allLabel}</option>`].concat(optionHtml).join("");
 }
 
-function initFilters() {
-  fillSelect(yearFilter, Object.keys(stats.yearCounts), "全部年份");
-  fillSelect(tagFilter, Object.keys(stats.tagCounts), "全部主题");
-  const risks = Array.from(new Set(files.flatMap(file => file.riskTags))).sort();
+function pillList(items, risk = false) {
+  return (items || [])
+    .slice(0, 8)
+    .map(item => `<span class="pill${risk ? " risk" : ""}">${escapeHtml(item)}</span>`)
+    .join("");
+}
+
+function buildDirectoryCounts() {
+  const counts = new Map();
+  files.forEach(file => {
+    const parts = file.path.split("/");
+    for (let index = 1; index < parts.length; index += 1) {
+      const path = parts.slice(0, index).join("/");
+      counts.set(path, (counts.get(path) || 0) + 1);
+    }
+  });
+  return counts;
+}
+
+const directoryCounts = buildDirectoryCounts();
+
+function renderTreeButtons(container, counter, currentPath, onSelect) {
+  if (!container) return;
+  const paths = Array.from(directoryCounts.keys()).sort((a, b) => a.localeCompare(b, "zh-Hans-CN"));
+  if (counter) counter.textContent = `${formatNumber(paths.length)} 个目录`;
+  const allButton = `<button type="button" data-path="" class="${!currentPath ? "is-active" : ""}" style="--depth:0">全部文件 <span class="muted">${formatNumber(files.length)}</span></button>`;
+  container.innerHTML = [allButton].concat(paths.map(path => {
+    const parts = path.split("/");
+    const label = parts[parts.length - 1];
+    const depth = parts.length - 1;
+    const active = path === currentPath ? " is-active" : "";
+    return `<button type="button" data-path="${escapeHtml(path)}" class="${active}" style="--depth:${depth}">${escapeHtml(label)} <span class="muted">${formatNumber(directoryCounts.get(path))}</span></button>`;
+  })).join("");
+  container.querySelectorAll("button").forEach(button => {
+    button.addEventListener("click", () => onSelect(button.dataset.path || ""));
+  });
+}
+
+function initHomeFilters() {
+  fillSelect(yearFilter, Object.keys(stats.yearCounts || {}), "全部年份");
+  fillSelect(tagFilter, Object.keys(stats.tagCounts || {}), "全部主题");
+  const risks = Array.from(new Set(files.flatMap(file => file.riskTags || []))).sort();
   fillSelect(riskFilter, risks, "全部风险标签");
 }
 
@@ -1115,7 +1778,7 @@ function fileMatches(file) {
   const year = yearFilter?.value || "";
   const tag = tagFilter?.value || "";
   const risk = riskFilter?.value || "";
-  const pathMatch = !activePath || file.path === activePath || file.path.startsWith(activePath + "/");
+  const pathMatch = !activePath || file.path.startsWith(activePath + "/");
   const yearMatch = !year || file.year === year;
   const tagMatch = !tag || file.tags.includes(tag);
   const riskMatch = !risk || file.riskTags.includes(risk);
@@ -1127,83 +1790,86 @@ function fileMatches(file) {
   return pathMatch && yearMatch && tagMatch && riskMatch && queryMatch;
 }
 
-function pillList(items, risk = false) {
-  return (items || []).map(item => `<span class="pill${risk ? " risk" : ""}">${escapeHtml(item)}</span>`).join("");
+function fileRow(file) {
+  const selected = file.path === selectedFilePath ? " is-selected" : "";
+  const excerpt = file.excerpt || "附件或空文件，打开原始文件查看。";
+  return `<button class="file-row${selected}" type="button" data-path="${escapeHtml(file.path)}">
+    <span class="file-main">
+      <span class="file-title"><strong>${escapeHtml(file.title)}</strong>${pillList(file.riskTags, true)}</span>
+      <span class="file-path">${escapeHtml(file.path)}</span>
+      <span class="file-excerpt">${escapeHtml(excerpt)}</span>
+    </span>
+    <span class="row-meta">
+      ${pillList(file.tags)}
+      <span class="pill neutral">${escapeHtml(file.year)}</span>
+      <span class="pill neutral">${escapeHtml(file.extension || "file")}</span>
+      <span class="pill neutral">${formatNumber(file.urlCount)} links</span>
+    </span>
+  </button>`;
 }
 
-function fileCard(file) {
-  const risk = file.riskTags.length ? `<div class="meta-row">${pillList(file.riskTags, true)}</div>` : "";
-  return `<article class="file-card" data-path="${escapeHtml(file.path)}">
-    <h3>${escapeHtml(file.title)}</h3>
-    <p class="muted">${escapeHtml(file.path)}</p>
-    <div class="meta-row">${pillList(file.tags)}<span class="pill">${escapeHtml(file.year)}</span><span class="pill">${escapeHtml(file.extension || "file")}</span></div>
-    ${risk}
-    <p>${escapeHtml(file.excerpt || "附件或空文件，打开原始文件查看。")}</p>
-  </article>`;
+function renderHomeTree() {
+  renderTreeButtons(directoryTree, treeCount, activePath, path => {
+    activePath = path;
+    renderHomeTree();
+    renderFiles();
+  });
 }
 
 function renderFiles() {
   if (!fileResults) return;
   const visible = files.filter(fileMatches);
-  fileResults.innerHTML = visible.slice(0, 240).map(fileCard).join("");
-  resultCount.textContent = `显示 ${visible.length} / ${files.length} 个文件`;
-  fileResults.querySelectorAll(".file-card").forEach(card => {
-    card.addEventListener("click", () => {
-      const file = files.find(item => item.path === card.dataset.path);
-      if (file) renderDetail(file);
+  if (!visible.some(file => file.path === selectedFilePath)) {
+    selectedFilePath = visible[0]?.path || "";
+  }
+  fileResults.innerHTML = visible.map(fileRow).join("");
+  if (resultCount) resultCount.textContent = `显示 ${formatNumber(visible.length)} / ${formatNumber(files.length)} 个文件`;
+  fileResults.querySelectorAll(".file-row").forEach(row => {
+    row.addEventListener("click", () => {
+      selectedFilePath = row.dataset.path || "";
+      renderFiles();
+      const file = fileByPath.get(selectedFilePath);
+      if (file) {
+        renderDetail(file);
+        if (window.innerWidth <= 860) fileDetail?.scrollIntoView({ behavior: "smooth", block: "start" });
+      }
     });
   });
+  const selected = fileByPath.get(selectedFilePath);
+  if (selected) renderDetail(selected);
 }
 
-function renderTree() {
-  if (!directoryTree) return;
-  const paths = Array.from(new Set(files.flatMap(file => {
-    const parts = file.path.split("/");
-    const acc = [];
-    for (let i = 1; i <= parts.length; i += 1) acc.push(parts.slice(0, i).join("/"));
-    return acc;
-  }))).sort((a, b) => a.localeCompare(b, "zh-Hans-CN"));
-  treeCount.textContent = `${paths.length} 个节点`;
-  const buttons = [`<button type="button" data-path="" class="${!activePath ? "is-active" : ""}">全部文件</button>`].concat(
-    paths.map(path => {
-      const depth = path.split("/").length - 1;
-      const label = `${"&nbsp;".repeat(depth * 3)}${escapeHtml(path.split("/").at(-1))}`;
-      return `<button type="button" data-path="${escapeHtml(path)}" class="${path === activePath ? "is-active" : ""}">${label}</button>`;
-    })
-  );
-  directoryTree.innerHTML = buttons.join("");
-  directoryTree.querySelectorAll("button").forEach(button => {
-    button.addEventListener("click", () => {
-      activePath = button.dataset.path || "";
-      renderTree();
-      renderFiles();
-    });
-  });
+function uniqueSourceLinks(file) {
+  const seen = new Set();
+  return links.filter(link => {
+    if (link.sourcePath !== file.path || seen.has(link.url)) return false;
+    seen.add(link.url);
+    return true;
+  }).slice(0, 36);
 }
 
 function renderDetail(file) {
   if (!fileDetail) return;
-  const sourceLinks = data.links
-    .filter(link => link.sourcePath === file.path)
-    .slice(0, 40)
-    .map(link => `<li><a href="${escapeHtml(link.url)}" target="_blank" rel="noreferrer">${escapeHtml(link.url)}</a></li>`)
+  const sourceLinks = uniqueSourceLinks(file)
+    .map(link => `<li><a class="text-link" href="${escapeHtml(link.url)}" target="_blank" rel="noreferrer">${escapeHtml(link.url)}</a></li>`)
     .join("");
-  const content = file.content ? `<pre>${escapeHtml(file.content)}</pre>` : `<p class="muted">这是附件或空文件，请使用原始文件入口查看。</p>`;
-  fileDetail.hidden = false;
-  fileDetail.innerHTML = `<div class="panel-head"><h2>${escapeHtml(file.title)}</h2><span>${escapeHtml(file.path)}</span></div>
-    <div class="meta-row">${pillList(file.tags)}${pillList(file.riskTags, true)}<span class="pill">${escapeHtml(file.year)}</span></div>
+  const content = file.content
+    ? `<pre>${escapeHtml(file.content)}</pre>`
+    : `<p class="muted">附件资料可通过公开入口打开或下载。</p>`;
+  fileDetail.innerHTML = `<div class="section-head"><h2>${escapeHtml(file.title)}</h2><span>${escapeHtml(file.extension || "file")}</span></div>
+    <p class="file-path">${escapeHtml(file.path)}</p>
+    <div class="meta-row">${pillList(file.tags)}${pillList(file.riskTags, true)}<span class="pill neutral">${escapeHtml(file.year)}</span><span class="pill neutral">${formatBytes(file.size)}</span></div>
     <div class="detail-actions">
-      <a class="button primary" href="${rootPrefix}${escapeHtml(file.publicPath)}" target="_blank" rel="noreferrer">打开原始文件</a>
-      <a class="button secondary" href="https://github.com/siuserxiaowei/moneyhunter-learning-hub/blob/main/${escapeHtml(file.publicPath)}" target="_blank" rel="noreferrer">GitHub 查看</a>
+      <a class="button primary" href="${fileHref(file)}" target="_blank" rel="noreferrer">打开原始文件</a>
+      <a class="button secondary" href="${githubHref(file)}" target="_blank" rel="noreferrer">GitHub 查看</a>
     </div>
     ${content}
-    ${sourceLinks ? `<h3>本文外链</h3><ul>${sourceLinks}</ul>` : ""}`;
-  fileDetail.scrollIntoView({ behavior: "smooth", block: "start" });
+    ${sourceLinks ? `<h3>本文外链</h3><ul class="source-list">${sourceLinks}</ul>` : ""}`;
 }
 
 function renderAttachments() {
   if (!attachmentGrid) return;
-  attachmentCount.textContent = `${attachments.length} 个附件`;
+  if (attachmentCount) attachmentCount.textContent = `${formatNumber(attachments.length)} 个附件`;
   attachmentGrid.innerHTML = attachments.map(file => {
     const detail = file.attachment?.kind === "pptx"
       ? `${file.attachment.slides.length} 页幻灯片，${file.attachment.mediaCount || 0} 个媒体`
@@ -1214,43 +1880,123 @@ function renderAttachments() {
       <h3>${escapeHtml(file.title)}</h3>
       <p class="muted">${escapeHtml(file.path)}</p>
       <p>${escapeHtml(detail)}</p>
-      <div class="detail-actions"><a class="text-link" href="${rootPrefix}${escapeHtml(file.publicPath)}" target="_blank" rel="noreferrer">打开/下载</a></div>
+      <div class="detail-actions"><a class="text-link" href="${fileHref(file)}" target="_blank" rel="noreferrer">打开/下载</a></div>
     </article>`;
   }).join("");
 }
 
 function renderDomains() {
   if (!domainGrid) return;
-  domainGrid.innerHTML = stats.topDomains.slice(0, 18).map(item =>
-    `<article class="domain-card"><strong>${escapeHtml(item.domain)}</strong><span>${item.count} 次出现</span></article>`
+  domainGrid.innerHTML = (stats.topDomains || []).slice(0, 14).map(item =>
+    `<article class="domain-card"><strong>${escapeHtml(item.domain)}</strong><span>${formatNumber(item.count)} 次</span></article>`
   ).join("");
+}
+
+function initLinkFilters() {
+  const domainCounts = new Map();
+  uniqueLinks.forEach(link => domainCounts.set(link.domain, (domainCounts.get(link.domain) || 0) + link.count));
+  const domains = Array.from(domainCounts.keys()).sort((a, b) => (domainCounts.get(b) - domainCounts.get(a)) || a.localeCompare(b));
+  const groups = Array.from(new Set(uniqueLinks.map(link => link.group))).sort();
+  fillSelect(domainFilter, domains, "全部域名", domain => `${domain} (${formatNumber(domainCounts.get(domain))})`);
+  fillSelect(groupFilter, groups, "全部分组", group => groupLabels[group] || group);
 }
 
 function linkMatches(link) {
   const query = (linkSearchInput?.value || "").trim().toLowerCase();
-  if (!query) return true;
+  const domain = domainFilter?.value || "";
+  const group = groupFilter?.value || "";
+  const domainMatch = !domain || link.domain === domain;
+  const groupMatch = !group || link.group === group;
   const haystack = [
-    link.url, link.domain, link.group, link.tags.join(" "), link.riskTags.join(" "),
-    link.sources.map(source => source.path + " " + source.title).join(" ")
+    link.url, link.domain, groupLabels[link.group] || link.group, link.tags.join(" "), link.riskTags.join(" "),
+    link.sources.map(source => `${source.path} ${source.title}`).join(" ")
   ].join(" ").toLowerCase();
-  return haystack.includes(query);
+  const queryMatch = !query || haystack.includes(query);
+  return domainMatch && groupMatch && queryMatch;
+}
+
+function renderLinkDomainChips() {
+  if (!linkDomainChips) return;
+  const activeDomain = domainFilter?.value || "";
+  linkDomainChips.innerHTML = (stats.topDomains || []).slice(0, 24).map(item => {
+    const active = item.domain === activeDomain ? " is-active" : "";
+    return `<button class="domain-chip${active}" type="button" data-domain="${escapeHtml(item.domain)}">${escapeHtml(item.domain)} · ${formatNumber(item.count)}</button>`;
+  }).join("");
+  linkDomainChips.querySelectorAll("button").forEach(button => {
+    button.addEventListener("click", () => {
+      if (domainFilter) domainFilter.value = button.dataset.domain || "";
+      linkPage = 1;
+      renderLinkDomainChips();
+      renderLinks();
+    });
+  });
 }
 
 function renderLinks() {
   if (!linkTableBody) return;
   const visible = uniqueLinks.filter(linkMatches);
-  linkCount.textContent = `显示 ${visible.length} / ${uniqueLinks.length} 个唯一链接`;
-  linkTableBody.innerHTML = visible.slice(0, 1000).map(link => {
-    const first = link.sources[0];
-    return `<tr>
-      <td class="link-url"><a href="${escapeHtml(link.url)}" target="_blank" rel="noreferrer">${escapeHtml(link.url)}</a></td>
-      <td>${escapeHtml(link.domain)}</td>
-      <td>${escapeHtml(link.group)}</td>
-      <td>${link.count}</td>
-      <td><a class="text-link" href="${rootPrefix}${escapeHtml(first.publicPath)}" target="_blank" rel="noreferrer">${escapeHtml(first.path)}</a></td>
-      <td>${pillList(link.tags)}${pillList(link.riskTags, true)}</td>
-    </tr>`;
+  const totalPages = Math.max(1, Math.ceil(visible.length / linkPageSize));
+  linkPage = Math.min(Math.max(1, linkPage), totalPages);
+  const start = (linkPage - 1) * linkPageSize;
+  const pageItems = visible.slice(start, start + linkPageSize);
+  if (linkCount) linkCount.textContent = `显示 ${formatNumber(visible.length)} / ${formatNumber(uniqueLinks.length)} 个唯一链接`;
+  if (linkPager) linkPager.textContent = `${formatNumber(linkPage)} / ${formatNumber(totalPages)}`;
+  if (linkPrev) linkPrev.disabled = linkPage <= 1;
+  if (linkNext) linkNext.disabled = linkPage >= totalPages;
+  linkTableBody.innerHTML = pageItems.map(link => {
+    const first = link.sources[0] || {};
+    const sourceFile = fileByPath.get(first.path);
+    const sourceText = sourceFile?.excerpt || first.title || first.path || "";
+    return `<article class="link-card">
+      <div>
+        <a class="link-url" href="${escapeHtml(link.url)}" target="_blank" rel="noreferrer">${escapeHtml(link.url)}</a>
+        <p class="link-context">${escapeHtml(sourceText)}</p>
+        <p class="muted">来源：<a class="text-link" href="${rootPrefix}${escapeHtml(first.publicPath || "")}" target="_blank" rel="noreferrer">${escapeHtml(first.path || "unknown")}</a></p>
+      </div>
+      <div class="link-side">
+        <span>${escapeHtml(link.domain)}</span>
+        <span>${escapeHtml(groupLabels[link.group] || link.group)}</span>
+        <span>${formatNumber(link.count)} 次出现</span>
+        <span>${pillList(link.tags)}${pillList(link.riskTags, true)}</span>
+      </div>
+    </article>`;
   }).join("");
+}
+
+function initRawFilters() {
+  const extensions = Array.from(new Set(files.map(file => file.extension || "no-ext"))).sort();
+  fillSelect(rawTypeFilter, extensions, "全部类型", value => value === "no-ext" ? "无扩展名" : value);
+}
+
+function rawMatches(file) {
+  const query = (rawSearchInput?.value || "").trim().toLowerCase();
+  const type = rawTypeFilter?.value || "";
+  const pathMatch = !rawActivePath || file.path.startsWith(rawActivePath + "/");
+  const typeMatch = !type || (file.extension || "no-ext") === type;
+  const haystack = [file.path, file.title, file.type, file.year, file.tags.join(" ")].join(" ").toLowerCase();
+  const queryMatch = !query || haystack.includes(query);
+  return pathMatch && typeMatch && queryMatch;
+}
+
+function renderRawTree() {
+  renderTreeButtons(rawDirectoryTree, rawTreeCount, rawActivePath, path => {
+    rawActivePath = path;
+    renderRawTree();
+    renderRawTable();
+  });
+}
+
+function renderRawTable() {
+  if (!rawTableBody) return;
+  const visible = files.filter(rawMatches);
+  if (rawCount) rawCount.textContent = `显示 ${formatNumber(visible.length)} / ${formatNumber(files.length)} 个文件`;
+  rawTableBody.innerHTML = visible.map(file => `<tr>
+    <td class="raw-path-cell" data-label="文件"><a href="${fileHref(file)}" target="_blank" rel="noreferrer">${escapeHtml(file.path)}</a></td>
+    <td data-label="类型">${escapeHtml(file.type)}</td>
+    <td data-label="年份">${escapeHtml(file.year)}</td>
+    <td data-label="标签">${pillList(file.tags)}${pillList(file.riskTags, true)}</td>
+    <td data-label="大小">${formatBytes(file.size)}</td>
+  </tr>`).join("");
 }
 
 function wireEvents() {
@@ -1258,16 +2004,38 @@ function wireEvents() {
     control?.addEventListener("input", renderFiles);
     control?.addEventListener("change", renderFiles);
   });
-  linkSearchInput?.addEventListener("input", renderLinks);
+  [linkSearchInput, domainFilter, groupFilter].forEach(control => {
+    control?.addEventListener("input", () => { linkPage = 1; renderLinks(); });
+    control?.addEventListener("change", () => { linkPage = 1; renderLinkDomainChips(); renderLinks(); });
+  });
+  clearLinkFilters?.addEventListener("click", () => {
+    if (linkSearchInput) linkSearchInput.value = "";
+    if (domainFilter) domainFilter.value = "";
+    if (groupFilter) groupFilter.value = "";
+    linkPage = 1;
+    renderLinkDomainChips();
+    renderLinks();
+  });
+  linkPrev?.addEventListener("click", () => { linkPage -= 1; renderLinks(); });
+  linkNext?.addEventListener("click", () => { linkPage += 1; renderLinks(); });
+  [rawSearchInput, rawTypeFilter].forEach(control => {
+    control?.addEventListener("input", renderRawTable);
+    control?.addEventListener("change", renderRawTable);
+  });
 }
 
 statCards();
-initFilters();
-renderTree();
+initHomeFilters();
+renderHomeTree();
 renderFiles();
 renderAttachments();
 renderDomains();
+initLinkFilters();
+renderLinkDomainChips();
 renderLinks();
+initRawFilters();
+renderRawTree();
+renderRawTable();
 wireEvents();
 """
     (SITE_DIR / "app.js").write_text(app, encoding="utf-8")
